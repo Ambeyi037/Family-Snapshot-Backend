@@ -1,0 +1,107 @@
+Certainly! Below, I'll provide the complete CRUD (Create, Read, Update, Delete) routes for the API, along with explanations for each route:
+
+```python
+from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy.orm import Session
+from .schemas import InsertPerson, ShowPerson, UpdatePerson
+from .models import Person, Relationship
+from .database import get_db
+
+router_person = APIRouter()
+
+# Create a new person
+@router_person.post("/persons", response_model=ShowPerson, status_code=status.HTTP_201_CREATED)
+def create_person(request: InsertPerson, db: Session = Depends(get_db)):
+    request.password = hash_password(request.password)
+    user = Person(**request.dict())
+    db.add(user)
+    db.commit()
+    db.refresh(user)
+    return user
+
+# Get all persons with their relationships
+@router_person.get("/persons", response_model=List[ShowPerson], status_code=status.HTTP_200_OK)
+def get_all_persons(db: Session = Depends(get_db)):
+    persons = db.query(Person).all()
+    if not persons:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No persons found")
+    
+    persons_with_relationships = []
+    for person in persons:
+        spouses = db.query(Person).filter(Person.id == person.spouse_id).all()
+        children = db.query(Person).join(Relationship, Relationship.child_id == Person.id)\
+                                    .filter(Relationship.parent_id == person.id).all()
+        parents = db.query(Person).join(Relationship, Relationship.parent_id == Person.id)\
+                                   .filter(Relationship.child_id == person.id).all()
+        siblings = []
+        for parent in parents:
+            siblings.extend(db.query(Person).join(Relationship, Relationship.parent_id == parent.id)\
+                                             .filter(Relationship.child_id != person.id).all())
+
+        persons_with_relationships.append({
+            "person": person,
+            "spouses": spouses,
+            "children": children,
+            "parents": parents,
+            "siblings": siblings
+        })
+
+    return persons_with_relationships
+
+# Get a single person with their relationships by ID
+@router_person.get("/persons/{person_id}", response_model=ShowPerson, status_code=status.HTTP_200_OK)
+def get_person(person_id: int, db: Session = Depends(get_db)):
+    person = db.query(Person).filter(Person.id == person_id).first()
+    if not person:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Person not found")
+
+    spouses = db.query(Person).filter(Person.id == person.spouse_id).all()
+    children = db.query(Person).join(Relationship, Relationship.child_id == Person.id)\
+                                .filter(Relationship.parent_id == person.id).all()
+    parents = db.query(Person).join(Relationship, Relationship.parent_id == Person.id)\
+                               .filter(Relationship.child_id == person.id).all()
+    siblings = []
+    for parent in parents:
+        siblings.extend(db.query(Person).join(Relationship, Relationship.parent_id == parent.id)\
+                                         .filter(Relationship.child_id != person.id).all())
+
+    return {
+        "person": person,
+        "spouses": spouses,
+        "children": children,
+        "parents": parents,
+        "siblings": siblings
+    }
+
+# Update a person by ID
+@router_person.put("/persons/{person_id}", response_model=ShowPerson, status_code=status.HTTP_200_OK)
+def update_person(person_id: int, request: UpdatePerson, db: Session = Depends(get_db)):
+    db_person = db.query(Person).filter(Person.id == person_id).first()
+    if not db_person:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Person not found")
+    update_data = request.dict(exclude_unset=True)
+    for key, value in update_data.items():
+        setattr(db_person, key, value)
+    db.commit()
+    db.refresh(db_person)
+    return db_person
+
+# Delete a person by ID
+@router_person.delete("/persons/{person_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_person(person_id: int, db: Session = Depends(get_db)):
+    db_person = db.query(Person).filter(Person.id == person_id).first()
+    if not db_person:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Person not found")
+    db.delete(db_person)
+    db.commit()
+    return {"detail": "Person deleted successfully"}
+```
+
+Explanation:
+- **Create**: `create_person` route allows creating a new person.
+- **Read All**: `get_all_persons` route retrieves all persons along with their relationships.
+- **Read Single**: `get_person` route retrieves a single person by ID along with their relationships.
+- **Update**: `update_person` route updates a person's information by ID.
+- **Delete**: `delete_person` route deletes a person by ID.
+
+Each route is appropriately annotated with the expected request and response models, status codes, and exception handling for potential errors. Make sure to import necessary modules (`HTTPException`, `Person`, `Relationship`, `InsertPerson`, `UpdatePerson`, `ShowPerson`, `get_db`) and adjust the code as per your project structure and data model.
